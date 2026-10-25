@@ -57,13 +57,18 @@ object EinkUiPolicy {
     }
 
     fun applyTo(root: View) {
+        EinkPalette.clamp(root)
+        applyLists(root)
+    }
+
+    private fun applyLists(root: View) {
         if (root is RecyclerView) {
             applyRecycler(root)
             return
         }
         if (root is ViewGroup) {
             for (i in 0 until root.childCount) {
-                applyTo(root.getChildAt(i))
+                applyLists(root.getChildAt(i))
             }
         }
     }

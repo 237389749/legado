@@ -19,9 +19,9 @@ import android.widget.FrameLayout
  * 所以要做到「所见即量化」，只能把整棵视图树画进一张 Bitmap，
  * 量化像素后再贴回屏幕。
  *
- * 代价：每帧一次全屏绘制 + 1.5M 像素遍历（约 20–40ms）。
+ * 代价：每帧一次全屏绘制 + 1.5M 像素遍历（约 50ms）。
  * 这个代价在 LCD 上不可接受，但在 EPD 上完全不是问题——面板本身一帧就要几百毫秒，
- * 应用侧多花二三十毫秒换「绝不出现脏灰」，是划算的。
+ * 应用侧多花几十毫秒换「绝不出现脏灰」，是划算的。
  *
  * 注意：
  *  - 这里用**不抖动**的量化（threshold=0.5）。文字的抗锯齿边缘一旦抖动，
@@ -48,7 +48,7 @@ class EinkFrameHost(context: Context) : FrameLayout(context) {
     }
 
     private var buffer: Bitmap? = null
-    private var pixels: IntArray? = null
+    private var scratch: IntArray = IntArray(0)
     private var backgroundColor = Color.WHITE
     private var lastQuantizeAt = 0L
     private var catchUpPending = false
@@ -71,7 +71,7 @@ class EinkFrameHost(context: Context) : FrameLayout(context) {
             return
         }
 
-        // 节流：一次连续绘制里只量化"落定"的那一帧。
+        // 节流：一次连续绘制里只量化「落定」的那一帧。
         // 中间帧按原样画（便宜），120ms 后再补一次量化，保证最终画面是量化过的。
         val now = SystemClock.uptimeMillis()
         if (now - lastQuantizeAt < MIN_INTERVAL_MS) {
@@ -87,13 +87,12 @@ class EinkFrameHost(context: Context) : FrameLayout(context) {
             off.drawColor(backgroundColor)
             super.dispatchDraw(off)
             val drawCost = (System.nanoTime() - started) / 1_000_000
-            val px = pixels!!
             val t1 = System.nanoTime()
-            bmp.getPixels(px, 0, w, 0, 0, w, h)
+            bmp.getPixels(scratch, 0, w, 0, 0, w, h)
             val t2 = System.nanoTime()
-            EinkGray.quantizeArgb(px, w, levels, dither = false)
+            EinkGray.quantizeArgb(scratch, w, levels, dither = false)
             val t3 = System.nanoTime()
-            bmp.setPixels(px, 0, w, 0, 0, w, h)
+            bmp.setPixels(scratch, 0, w, 0, 0, w, h)
             val t4 = System.nanoTime()
             canvas.drawBitmap(bmp, 0f, 0f, null)
             lastQuantizeAt = now
@@ -102,7 +101,7 @@ class EinkFrameHost(context: Context) : FrameLayout(context) {
                 slowFrameLogged++
                 Log.i(
                     TAG,
-                    "frame ${w}x$h total=${total}ms draw=${drawCost} " +
+                    "frame ${w}x$h total=${total}ms draw=$drawCost " +
                         "get=${(t2 - t1) / 1_000_000} quant=${(t3 - t2) / 1_000_000} " +
                         "set=${(t4 - t3) / 1_000_000}"
                 )
@@ -129,7 +128,7 @@ class EinkFrameHost(context: Context) : FrameLayout(context) {
         if (cur != null && cur.width == w && cur.height == h) return cur
         val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
         buffer = bmp
-        pixels = IntArray(w * h)
+        scratch = IntArray(w * h)
         return bmp
     }
 

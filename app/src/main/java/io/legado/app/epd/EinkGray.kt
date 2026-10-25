@@ -97,6 +97,34 @@ object EinkGray {
         return out
     }
 
+    /**
+     * 量化「原生内存序」的像素数组。
+     *
+     * `Bitmap.copyPixelsToBuffer` 拷的是原始内存，ARGB_8888 在小端机器上的
+     * 字节序是 R,G,B,A，读成 int 就是 `A << 24 | B << 16 | G << 8 | R`。
+     * 走「copyPixelsToBuffer → 批量 get 到 IntArray → 量化 → 批量 put 回」，
+     * 实测比 `getPixels`（25ms）快一个数量级，但千万别逐像素 get/put（会慢 9 倍）。
+     */
+    fun quantizeNative(pixels: IntArray, width: Int, levels: Int, dither: Boolean = true) {
+        if (width <= 0 || pixels.isEmpty()) return
+        val rows = lut(levels, dither)
+        val height = pixels.size / width
+        var i = 0
+        for (y in 0 until height) {
+            val rowBase = (y and 7) shl 3
+            for (x in 0 until width) {
+                val v = pixels[i]
+                val r = v and 0xFF
+                val g = v ushr 8 and 0xFF
+                val b = v ushr 16 and 0xFF
+                val lum = (r * 77 + g * 151 + b * 28) shr 8
+                val q = if (dither) rows[rowBase + (x and 7)][lum] else rows[0][lum]
+                pixels[i] = (v and -0x1000000) or (q shl 16) or (q shl 8) or q
+                i++
+            }
+        }
+    }
+
     /** 亮度：整数近似，避免每像素浮点除法 */
     fun luminance(color: Int): Int {
         val r = color shr 16 and 0xFF
