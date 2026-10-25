@@ -30,6 +30,8 @@ object EinkUiPolicy {
 
     private var installed = false
 
+    private val hooked = java.util.WeakHashMap<View, Boolean>()
+
     fun install(app: Application) {
         if (installed) return
         installed = true
@@ -43,7 +45,14 @@ object EinkUiPolicy {
                     EinkFrameHost.enabled = true
                     EinkFrameHostInstaller.install(activity)
                 }
-                root.post { applyTo(root) }
+                root.post {
+                    EinkPalette.resetLog()
+                    Log.d(TAG, "policy pass1 on ${activity.javaClass.simpleName}")
+                    applyTo(root)
+                }
+                // 列表/空态是数据回来之后才出现的，一次性扫描抓不到；
+                // 挂到 OnGlobalLayout 上，每次布局后再扫一遍（设置过色就会退出，不会形成循环）。
+                installLayoutHook(root)
             }
 
             override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) = Unit
@@ -59,6 +68,19 @@ object EinkUiPolicy {
     fun applyTo(root: View) {
         EinkPalette.clamp(root)
         applyLists(root)
+    }
+
+    private fun installLayoutHook(root: View) {
+        if (hooked.containsKey(root)) return
+        hooked[root] = true
+        val observer = root.viewTreeObserver
+        observer.addOnGlobalLayoutListener {
+            if (!AppConfig.isEInkMode) return@addOnGlobalLayoutListener
+            try {
+                applyTo(root)
+            } catch (ignored: Throwable) {
+            }
+        }
     }
 
     private fun applyLists(root: View) {

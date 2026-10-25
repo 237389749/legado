@@ -1,5 +1,6 @@
 package io.legado.app.epd
 
+import android.util.Log
 import android.view.View
 import android.view.ViewGroup
 import android.widget.TextView
@@ -24,6 +25,15 @@ object EinkPalette {
 
     private const val REPLACEMENT = 0xFF444444.toInt()
 
+    private const val TAG = "EinkRefresh"
+    private const val LOG_LIMIT = 80
+    private var logged = 0
+
+    /** 诊断用：新一轮扫描时重置日志配额 */
+    fun resetLog() {
+        logged = 0
+    }
+
     fun clamp(root: View) {
         if (root is TextView) {
             clampText(root)
@@ -38,18 +48,46 @@ object EinkPalette {
 
     private fun clampText(view: TextView) {
         val color = view.currentTextColor
-        val lum = compositeLuminance(color)
+        val viewAlpha = effectiveAlpha(view)
+        if (viewAlpha < 0.05f) return
+        // 真实观感 = 文字色 alpha × 视图链 alpha，再合成到白底
+        val alpha = ((color ushr 24) / 255f * viewAlpha).coerceIn(0f, 1f)
+        val lum = compositeLuminance(color, alpha)
         if (lum <= MAX_TEXT_LUMINANCE) return
+        if (logged < LOG_LIMIT) {
+            logged++
+            Log.d(
+                TAG,
+                "clamp tv=${view.javaClass.simpleName} color=#${Integer.toHexString(color)} " +
+                    "viewAlpha=$viewAlpha lum=$lum text=\"${view.text.take(10)}\""
+            )
+        }
         try {
+            // 只改颜色不够：父链 alpha 会让 #444 又被冲淡，必须一起恢复
+            if (viewAlpha < 1f) view.alpha = 1f
             view.setTextColor(REPLACEMENT)
         } catch (ignored: Throwable) {
         }
     }
 
-    /** 把带 alpha 的颜色先合成到白底，再算亮度 */
-    fun compositeLuminance(color: Int): Int {
-        val a = color ushr 24
-        if (a == 255) return EinkGray.luminance(color)
+    /** 视图链上的有效 alpha（View.alpha 会逐层相乘） */
+    private fun effectiveAlpha(view: View): Float {
+        var alpha = 1f
+        var cur: View? = view
+        while (cur != null) {
+            alpha *= cur.alpha
+            if (alpha <= 0.01f) return 0f
+            cur = cur.parent as? View
+        }
+        return alpha
+    }
+
+    /** 把带 alpha 的颜色合成到白底，再算亮度 */
+    fun compositeLuminance(color: Int): Int = compositeLuminance(color, (color ushr 24) / 255f)
+
+    fun compositeLuminance(color: Int, alpha: Float): Int {
+        if (alpha >= 1f) return EinkGray.luminance(color)
+        val a = (alpha * 255).toInt().coerceIn(0, 255)
         val r = ((color shr 16 and 0xFF) * a + 255 * (255 - a)) / 255
         val g = ((color shr 8 and 0xFF) * a + 255 * (255 - a)) / 255
         val b = ((color and 0xFF) * a + 255 * (255 - a)) / 255
