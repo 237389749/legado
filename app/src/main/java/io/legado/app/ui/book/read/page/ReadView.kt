@@ -26,6 +26,7 @@ import io.legado.app.service.BaseReadAloudService
 import io.legado.app.ui.book.read.ContentEditDialog
 import io.legado.app.ui.book.read.page.api.DataSource
 import io.legado.app.ui.book.read.page.delegate.CoverPageDelegate
+import io.legado.app.ui.book.read.page.delegate.EinkPageDelegate
 import io.legado.app.ui.book.read.page.delegate.HorizontalPageDelegate
 import io.legado.app.ui.book.read.page.delegate.NoAnimPageDelegate
 import io.legado.app.ui.book.read.page.delegate.PageDelegate
@@ -967,7 +968,11 @@ class ReadView(context: Context, attrs: AttributeSet) :
                 pageDelegate = ScrollPageDelegate(this)
             }
 
-            else -> if (pageDelegate !is NoAnimPageDelegate) {
+            else -> if (AppConfig.isEInkMode) {
+                if (pageDelegate !is EinkPageDelegate) {
+                    pageDelegate = EinkPageDelegate(this)
+                }
+            } else if (pageDelegate !is NoAnimPageDelegate) {
                 pageDelegate = NoAnimPageDelegate(this)
             }
         }
