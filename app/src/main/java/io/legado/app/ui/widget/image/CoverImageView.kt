@@ -26,6 +26,7 @@ import com.bumptech.glide.request.RequestListener
 import com.bumptech.glide.request.RequestOptions
 import com.bumptech.glide.request.target.Target
 import io.legado.app.constant.AppPattern
+import io.legado.app.epd.EinkGrayTransformation
 import io.legado.app.help.config.AppConfig
 import io.legado.app.help.glide.ImageLoader
 import io.legado.app.help.glide.OkHttpModelLoader
@@ -646,6 +647,9 @@ class CoverImageView @JvmOverloads constructor(
                 .placeholder(BookCover.defaultDrawable)
                 .error(BookCover.defaultDrawable)
                 .listener(glideListener)
+            if (AppConfig.isEInkMode) {
+                builder = builder.optionalTransform(EinkGrayTransformation())
+            }
             if (onLoadFinish != null) {
                 builder = builder.addListener(object : RequestListener<Drawable> {
                     override fun onLoadFailed(
