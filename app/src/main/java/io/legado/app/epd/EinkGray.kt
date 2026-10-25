@@ -9,10 +9,12 @@ import android.graphics.Bitmap
  * GC16 是 4bpp（16 级）。而 App 里的图片是 8bpp 的连续灰，
  * 直接交给面板就是「面板替你随机抖动」，结果不可控、还带残影。
  *
- * 这里做的是**自己抖动**：用 8×8 Bayer 有序抖动把 8bpp 压到 2/4/16 级，
- * 输出的图案是确定的、可复现的，看起来像网点，而不是噪点。
+ * 这里做的是**自己抖动**：8×8 Bayer 有序抖动，把 8bpp 压到 2/4/16 级，
+ * 输出图案确定、可复现，看起来像网点而不是噪点。
  *
- * 纯函数部分只吃 IntArray，不碰 Bitmap，方便单测。
+ * 性能：全屏 1072×1448 是 1.5M 像素，逐像素做浮点运算是 80–100ms（实测），
+ * 所以这里用 **64 行 × 256 列的查找表**（每行对应一个 Bayer 位置），
+ * 单像素只剩「取亮度 → 查表 → 写回」，压到 10ms 量级。
  */
 object EinkGray {
 
@@ -32,27 +34,53 @@ object EinkGray {
         63, 31, 55, 23, 61, 29, 53, 21,
     )
 
+    private val lutCache = HashMap<Long, Array<IntArray>>()
+
+    /**
+     * 查找表：rows[pos][lum] = 量化后的灰度值。
+     *
+     * pos 是 8×8 网格里的位置，dither=false 时只用 rows[0]。
+     */
+    fun lut(levels: Int, dither: Boolean): Array<IntArray> {
+        val n = levels.coerceIn(2, 256)
+        val key = n.toLong() shl 1 or (if (dither) 1L else 0L)
+        lutCache[key]?.let { return it }
+        val steps = n - 1
+        val step = 255.0 / steps
+        val rows = Array(64) { pos ->
+            val b = if (dither) (BAYER8[pos] + 0.5) / 64.0 else 0.5
+            IntArray(256) { lum ->
+                val q = (lum / step + b).toInt().coerceIn(0, steps)
+                (q * step).toInt().coerceIn(0, 255)
+            }
+        }
+        lutCache[key] = rows
+        return rows
+    }
+
     /**
      * 原地量化 ARGB 像素。
      *
-     * @param levels 2 / 4 / 16，其余值会被夹到最近一档
-     * @param dither false 时退化为直接四舍五入（会出硬边）
+     * @param levels 2 / 4 / 16，其余值会被夹到范围内
+     * @param dither false 时退化为四舍五入（文字用），true 时抖动（图片用）
      */
     fun quantizeArgb(pixels: IntArray, width: Int, levels: Int, dither: Boolean = true) {
-        val steps = levels.coerceIn(2, 256) - 1
-        val step = 255.0 / steps
-        for (i in pixels.indices) {
-            val c = pixels[i]
-            val lum = luminance(c)
-            val threshold = if (dither) {
-                val b = BAYER8[(i % width and 7) + ((i / width and 7) shl 3)]
-                (b + 0.5) / 64.0
-            } else {
-                0.5
+        if (width <= 0 || pixels.isEmpty()) return
+        val rows = lut(levels, dither)
+        val height = pixels.size / width
+        var i = 0
+        for (y in 0 until height) {
+            val rowBase = (y and 7) shl 3
+            for (x in 0 until width) {
+                val c = pixels[i]
+                val r = c shr 16 and 0xFF
+                val g = c shr 8 and 0xFF
+                val b = c and 0xFF
+                val lum = (r * 77 + g * 151 + b * 28) shr 8
+                val q = if (dither) rows[rowBase + (x and 7)][lum] else rows[0][lum]
+                pixels[i] = (c and -0x1000000) or (q shl 16) or (q shl 8) or q
+                i++
             }
-            val q = (lum / step + threshold).toInt().coerceIn(0, steps)
-            val g = (q * step).toInt().coerceIn(0, 255)
-            pixels[i] = (c and -0x1000000) or (g shl 16) or (g shl 8) or g
         }
     }
 

@@ -22,6 +22,12 @@ object EinkUiPolicy {
 
     private const val TAG = "EinkRefresh"
 
+    /** 是否把整个 Activity 内容区做帧缓冲量化 */
+    private const val quantizeFrame = true
+
+    /** 量化级数：2 = 纯黑白，4 = 四级灰，16+ = 关闭 */
+    private const val frameLevels = 4
+
     private var installed = false
 
     fun install(app: Application) {
@@ -32,6 +38,11 @@ object EinkUiPolicy {
             override fun onActivityResumed(activity: Activity) {
                 if (!AppConfig.isEInkMode) return
                 val root = activity.window?.decorView ?: return
+                if (quantizeFrame) {
+                    EinkFrameHost.levels = frameLevels
+                    EinkFrameHost.enabled = true
+                    EinkFrameHostInstaller.install(activity)
+                }
                 root.post { applyTo(root) }
             }
 
