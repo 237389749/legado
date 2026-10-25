@@ -1,5 +1,6 @@
 package io.legado.app.epd
 
+import android.app.Application
 import android.content.Context
 import android.util.Log
 import android.view.View
@@ -49,6 +50,7 @@ object EinkRuntime {
                 "backend=${backend.name} available=${backend.available} " +
                 "a2FullScreenOnly=${DeviceProfile.a2FullScreenOnly}"
         )
+        (context as? Application)?.let { EinkUiPolicy.install(it) }
         if (isActive) {
             if (FORCE_FAST_SCOPE) applyFastScope()
             else Log.i(TAG, "fast scope disabled, ghost budget only")
