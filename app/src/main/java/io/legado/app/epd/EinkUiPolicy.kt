@@ -26,7 +26,7 @@ object EinkUiPolicy {
     private const val quantizeFrame = true
 
     /** 量化级数：2 = 纯黑白，4 = 四级灰，16+ = 关闭 */
-    private const val frameLevels = 4
+    private const val frameLevels = 2
 
     private var installed = false
 
