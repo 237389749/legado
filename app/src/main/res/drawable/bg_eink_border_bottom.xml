@@ -3,7 +3,7 @@
     <item>
         <shape>
             <!--    边框颜色    -->
-            <solid android:color="@color/divider" />
+            <solid android:color="@android:color/black" />
         </shape>
     </item>
     <!--    边框位置和粗细    -->

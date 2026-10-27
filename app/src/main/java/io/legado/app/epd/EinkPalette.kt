@@ -20,10 +20,16 @@ import android.widget.TextView
  */
 object EinkPalette {
 
-    /** 允许的最亮文字亮度：超过它，2 级量化就会变白 */
-    private const val MAX_TEXT_LUMINANCE = 0x7F
-
-    private const val REPLACEMENT = 0xFF444444.toInt()
+    /**
+     * 墨水屏模式下统一用纯黑。
+     *
+     * 判据不是「亮度超过 127 会消失」，而是「墨水屏上不应该存在灰色文字」：
+     * DU 只有 2 色，靠灰度表达层次本来就会丢；被判成 85 的灰字，
+     * 在对话框这类**不经过帧缓冲量化**的窗口里会原样显示成灰色。
+     *
+     * 所以这里的规则是：任何非纯黑的文字都拉回纯黑，层次交给字号 / 字重 / 间距。
+     */
+    private const val REPLACEMENT = 0xFF000000.toInt()
 
     private const val TAG = "EinkRefresh"
     private const val LOG_LIMIT = 80
@@ -49,21 +55,22 @@ object EinkPalette {
     private fun clampText(view: TextView) {
         val color = view.currentTextColor
         val viewAlpha = effectiveAlpha(view)
+        // 完全透明的（隐藏 / 正在淡出）不动，否则会把动画中的元素钉死
         if (viewAlpha < 0.05f) return
-        // 真实观感 = 文字色 alpha × 视图链 alpha，再合成到白底
+        // 已经是纯黑不透明就不用写，避免每次布局都触发重绘
+        if (color == REPLACEMENT && viewAlpha >= 1f) return
         val alpha = ((color ushr 24) / 255f * viewAlpha).coerceIn(0f, 1f)
-        val lum = compositeLuminance(color, alpha)
-        if (lum <= MAX_TEXT_LUMINANCE) return
         if (logged < LOG_LIMIT) {
             logged++
             Log.d(
                 TAG,
                 "clamp tv=${view.javaClass.simpleName} color=#${Integer.toHexString(color)} " +
-                    "viewAlpha=$viewAlpha lum=$lum text=\"${view.text.take(10)}\""
+                    "viewAlpha=$viewAlpha lum=${compositeLuminance(color, alpha)} " +
+                    "text=\"${view.text.take(10)}\""
             )
         }
         try {
-            // 只改颜色不够：父链 alpha 会让 #444 又被冲淡，必须一起恢复
+            // 只改颜色不够：父链 alpha 会让纯黑又被冲淡，必须一起恢复
             if (viewAlpha < 1f) view.alpha = 1f
             view.setTextColor(REPLACEMENT)
         } catch (ignored: Throwable) {

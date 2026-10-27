@@ -6,6 +6,7 @@ import androidx.fragment.app.DialogFragment
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import io.legado.app.R
+import io.legado.app.epd.EinkFrameHostInstaller
 import io.legado.app.help.config.AppConfig
 import io.legado.app.utils.dpToPx
 
@@ -24,6 +25,8 @@ abstract class BasePrefDialogFragment(
                 it.attributes = attr
                 it.setBackgroundDrawableResource(R.color.transparent)
             }
+            // 对话框是独立 window，不包这层就不会被帧缓冲量化（会留着灰阶）
+            dialog?.let { EinkFrameHostInstaller.install(it) }
 
             // 修改gravity的时机一般在子类的onStart方法中, 因此需要在onStart之后执行.
             lifecycle.addObserver(LifecycleEventObserver { _, event ->

@@ -137,7 +137,9 @@ class EinkFrameHost(context: Context) : FrameLayout(context) {
             val a = context.obtainStyledAttributes(intArrayOf(android.R.attr.windowBackground))
             val d = a.getDrawable(0)
             a.recycle()
-            if (d is ColorDrawable) d.color else Color.WHITE
+            // 对话框的 windowBackground 在墨水屏模式下被显式设成透明，
+            // 直接拿来当底色会让面板"消失"（文字浮在页面上），所以透明一律回落到白
+            if (d is ColorDrawable && (d.color ushr 24) == 255) d.color else Color.WHITE
         } catch (ignored: Throwable) {
             Color.WHITE
         }
@@ -145,7 +147,7 @@ class EinkFrameHost(context: Context) : FrameLayout(context) {
 }
 
 /**
- * 把 Activity 的内容区包进 [EinkFrameHost]。
+ * 把 Activity / Dialog 的内容区包进 [EinkFrameHost]。
  *
  * 只包 `android.R.id.content` 的唯一子 View——不动 View 树结构以外的东西，
  * 输入事件、findViewById、Fragment 容器都不受影响。
@@ -156,6 +158,17 @@ object EinkFrameHostInstaller {
 
     fun install(activity: Activity): Boolean {
         val content = activity.findViewById<ViewGroup>(android.R.id.content) ?: return false
+        val ok = wrap(content, activity, "activity:" + activity.javaClass.simpleName)
+        return ok
+    }
+
+    /** Dialog 是独立 window，不包这一层的话它永远不会被量化 */
+    fun install(dialog: android.app.Dialog): Boolean {
+        val content = dialog.findViewById<ViewGroup>(android.R.id.content) ?: return false
+        return wrap(content, dialog.context, "dialog")
+    }
+
+    private fun wrap(content: ViewGroup, context: Context, label: String): Boolean {
         if (content.childCount != 1) return false
         val child = content.getChildAt(0)
         if (child is EinkFrameHost) return true
@@ -166,13 +179,14 @@ object EinkFrameHostInstaller {
         )
         return try {
             content.removeViewAt(0)
-            val host = EinkFrameHost(activity)
+            val host = EinkFrameHost(context)
             host.addView(child, ViewGroup.LayoutParams(lp.width, lp.height))
             content.addView(host, lp)
-            Log.i(TAG, "frame host installed: ${activity.javaClass.simpleName}")
+            host.invalidate()
+            Log.i(TAG, "frame host installed: $label")
             true
         } catch (t: Throwable) {
-            Log.w(TAG, "frame host install failed", t)
+            Log.w(TAG, "frame host install failed ($label)", t)
             false
         }
     }
