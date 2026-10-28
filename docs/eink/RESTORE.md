@@ -33,6 +33,19 @@
 
 ## 1. 恢复步骤
 
+**最快的一条路：直接 clone fork**（含完整历史与全部提交，前提是 GitHub 还在）：
+
+```powershell
+git clone -b eink https://github.com/237389749/legado.git D:\src\legado-eink
+```
+
+分支 `eink` 已推送到 fork，与本地 HEAD 一致（`91e884d`）。
+上游更新时：`git remote add upstream https://github.com/LegadoTeam/legado`，
+然后 `git fetch upstream && git rebase upstream/master`（本项目的改动集中在
+`io.legado.app.epd` 包和 9 个挂钩点，冲突面很小）。
+
+**离线恢复（fork 不可用时）：**
+
 ```powershell
 # 1) 解压源码
 Expand-Archive backup\legado-eink-src.zip -DestinationPath D:\src\legado-eink
