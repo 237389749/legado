@@ -264,7 +264,13 @@ class CircleImageView @JvmOverloads constructor(
         initializeBitmap()
     }
 
-    override fun setColorFilter(cf: ColorFilter) {
+    /**
+     * 参数必须可空：平台的 [ImageView.setColorFilter] 接受 null（= 清除滤镜），
+     * 而 [ImageView.clearColorFilter] 内部就是调用 `setColorFilter(null)`。
+     * 写成非空会在清理滤镜时抛
+     * `NullPointerException: Parameter specified as non-null is null`。
+     */
+    override fun setColorFilter(cf: ColorFilter?) {
         if (cf === mColorFilter) {
             return
         }

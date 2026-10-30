@@ -21,4 +21,8 @@
     <item name="menu_show_explore_categories" type="id" />
     <item name="code_share_selection" type="id" />
 
+    <!-- 墨水屏控件已按黑白重新上色，避免每次 OnGlobalLayout 重复设置 -->
+    <item name="eink_widget_styled" type="id" />
+    <item name="eink_state_on" type="id" />
+
 </resources>

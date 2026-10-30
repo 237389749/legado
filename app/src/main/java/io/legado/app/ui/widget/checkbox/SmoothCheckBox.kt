@@ -9,6 +9,7 @@ import android.view.animation.LinearInterpolator
 import android.widget.Checkable
 import androidx.core.view.postDelayed
 import io.legado.app.R
+import io.legado.app.help.config.AppConfig
 import io.legado.app.lib.theme.ThemeStore
 import io.legado.app.utils.dpToPx
 import io.legado.app.utils.getCompatColor
@@ -56,6 +57,15 @@ class SmoothCheckBox @JvmOverloads constructor(
         mUnCheckedColor = ta.getColor(R.styleable.SmoothCheckBox_color_unchecked, mUnCheckedColor)
         mStrokeWidth = ta.getDimensionPixelSize(R.styleable.SmoothCheckBox_stroke_width, 0)
         ta.recycle()
+        if (AppConfig.isEInkMode) {
+            // 未勾选时底色是 30% 黑（亮度约 178），2 级量化下直接变白 → 复选框整个消失。
+            // 墨水屏改成「未选 = 纯黑圆盘 / 已选 = 白底 + 黑勾」，靠填充与对勾表达状态。
+            mFloorColor = Color.BLACK
+            mFloorUnCheckedColor = Color.BLACK
+            mCheckedColor = Color.WHITE
+            mUnCheckedColor = Color.WHITE
+            tickColor = Color.BLACK
+        }
         mFloorUnCheckedColor = mFloorColor
         mTickPaint = Paint(Paint.ANTI_ALIAS_FLAG)
         mTickPaint.style = Paint.Style.STROKE

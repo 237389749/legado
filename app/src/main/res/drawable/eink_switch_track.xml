@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 墨水屏开关：「开」= 黑轨道上的白滑块 -->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:state_checked="true" android:drawable="@drawable/eink_switch_track_on" />
+    <item android:drawable="@drawable/eink_switch_track_off" />
+</selector>

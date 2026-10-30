@@ -1,5 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <!-- 墨水屏只有黑白两级，语义色一律用这两个值 -->
+    <color name="eink_ink">#FF000000</color>
+    <color name="eink_paper">#FFFFFFFF</color>
+
     <color name="primary">@color/md_light_blue_600</color>
     <color name="primaryDark">@color/md_light_blue_700</color>
     <color name="accent">@color/md_pink_800</color>

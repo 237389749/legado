@@ -14,6 +14,8 @@ import io.legado.app.base.adapter.ItemViewHolder
 import io.legado.app.base.adapter.RecyclerAdapter
 import io.legado.app.data.entities.BookSourcePart
 import io.legado.app.data.entities.BookSourceCheckState
+import io.legado.app.epd.EinkWidgets
+import io.legado.app.help.config.AppConfig
 import io.legado.app.databinding.ItemBookSourceBinding
 import io.legado.app.lib.theme.backgroundColor
 import io.legado.app.model.Debug
@@ -243,13 +245,27 @@ class BookSourceAdapter(
                 iv.invisible()
             }
 
+            AppConfig.isEInkMode -> {
+                // 墨水屏：绿(亮度≈150)在 2 级量化下直接变白，点会整个消失；
+                // 红(≈76)变黑。于是「启用」看不见、「禁用」看得见，语义正好反了。
+                // 改成实心/空心两个形状，颜色和形状都不丢信息。
+                EinkWidgets.stateDot(iv, source.enabledExplore)
+                iv.visible()
+                iv.contentDescription = context.getString(
+                    if (source.enabledExplore) R.string.tag_explore_enabled
+                    else R.string.tag_explore_disabled
+                )
+            }
+
             source.enabledExplore -> {
+                iv.setImageResource(R.color.md_green_600)
                 iv.setColorFilter(Color.GREEN)
                 iv.visible()
                 iv.contentDescription = context.getString(R.string.tag_explore_enabled)
             }
 
             else -> {
+                iv.setImageResource(R.color.md_green_600)
                 iv.setColorFilter(Color.RED)
                 iv.visible()
                 iv.contentDescription = context.getString(R.string.tag_explore_disabled)
