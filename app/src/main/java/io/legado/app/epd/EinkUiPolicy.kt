@@ -67,7 +67,20 @@ object EinkUiPolicy {
 
     fun applyTo(root: View) {
         EinkPalette.clamp(root)
+        EinkWidgets.apply(root)
         applyLists(root)
+    }
+
+    /**
+     * 给一个独立 window（对话框）挂策略。
+     *
+     * Activity 有 `onActivityResumed` 这条统一入口，对话框没有——不主动挂的话，
+     * 偏好设置里的开关、列表 gate 全都不生效（这正是「设置里的开关在黑白下
+     * 只剩一团黑」的原因）。
+     */
+    fun attachWindow(root: View) {
+        root.post { applyTo(root) }
+        installLayoutHook(root)
     }
 
     private fun installLayoutHook(root: View) {

@@ -18,6 +18,7 @@ import com.google.android.material.textfield.TextInputLayout
 import io.legado.app.R
 import io.legado.app.constant.AppLog
 import io.legado.app.epd.EinkFrameHostInstaller
+import io.legado.app.epd.EinkUiPolicy
 import io.legado.app.help.config.AppConfig
 import io.legado.app.help.coroutine.Coroutine
 import io.legado.app.lib.theme.ThemeStore
@@ -57,6 +58,8 @@ abstract class BaseDialogFragment(
             }
             // 对话框是独立 window，不包这层就不会被帧缓冲量化（会留着灰阶）
             dialog?.let { EinkFrameHostInstaller.install(it) }
+            // 文字收敛 / 开关黑白化 / 列表 gate 都要在这个窗口里再挂一次
+            dialog?.window?.decorView?.let { EinkUiPolicy.attachWindow(it) }
             // 修改gravity的时机一般在子类的onStart方法中, 因此需要在onStart之后执行.
             lifecycle.addObserver(LifecycleEventObserver { _, event ->
                 if (event == Lifecycle.Event.ON_START) {

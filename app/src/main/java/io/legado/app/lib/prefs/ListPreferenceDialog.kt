@@ -9,6 +9,7 @@ import androidx.core.view.forEach
 import androidx.preference.ListPreferenceDialogFragmentCompat
 import io.legado.app.R
 import io.legado.app.epd.EinkFrameHostInstaller
+import io.legado.app.epd.EinkUiPolicy
 import io.legado.app.help.config.AppConfig
 import io.legado.app.lib.theme.accentColor
 import io.legado.app.lib.theme.filletBackground
@@ -67,6 +68,7 @@ class ListPreferenceDialog : ListPreferenceDialogFragmentCompat() {
             }
             // 对话框是独立 window，不包这层就不会被帧缓冲量化（会留着灰阶）
             dialog?.let { EinkFrameHostInstaller.install(it) }
+            dialog?.window?.decorView?.let { EinkUiPolicy.attachWindow(it) }
         }
     }
 

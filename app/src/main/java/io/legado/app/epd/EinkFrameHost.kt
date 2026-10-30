@@ -59,6 +59,22 @@ class EinkFrameHost(context: Context) : FrameLayout(context) {
         backgroundColor = resolveBackground(context)
     }
 
+    /**
+     * **必须**把子树的失效一路拉到宿主身上。
+     *
+     * 硬件渲染下每个 View 是一条 display list。这里把子树的绘制结果「拍」进了
+     * [buffer] 位图，于是 display list 里只剩一条 `drawBitmap`——子 View 的内容
+     * 并不在树里。子 View 自己 invalidate 时，RenderThread 只会重录那一小条
+     * display list，宿主不会重绘，屏幕就停在上一次截图的那一帧：
+     * **列表能滚、能点到新位置，但画面一动不动**（这正是「设置面板无法下滑」的成因）。
+     *
+     * 强制宿主一起失效，让 dispatchDraw 重新执行、重新拍图。
+     */
+    override fun onDescendantInvalidated(child: View, target: View) {
+        super.onDescendantInvalidated(child, target)
+        invalidate()
+    }
+
     override fun dispatchDraw(canvas: Canvas) {
         if (!enabled || levels > 16) {
             super.dispatchDraw(canvas)
@@ -71,11 +87,18 @@ class EinkFrameHost(context: Context) : FrameLayout(context) {
             return
         }
 
-        // 节流：一次连续绘制里只量化「落定」的那一帧。
-        // 中间帧按原样画（便宜），120ms 后再补一次量化，保证最终画面是量化过的。
+        // 节流：一次连续交互里只量化「落定」的那一帧。
+        // 中间帧贴上一张量化过的位图，**而不是**把未量化的内容直接画上去——
+        // 未量化的帧在 2 级面板上会出现灰阶/抖动，正是要消灭的东西。
+        // 画面因此最多延迟 MIN_INTERVAL_MS 更新，而每一帧都是完整的量化画面。
         val now = SystemClock.uptimeMillis()
         if (now - lastQuantizeAt < MIN_INTERVAL_MS) {
-            super.dispatchDraw(canvas)
+            val bmp = buffer
+            if (bmp != null && !bmp.isRecycled) {
+                canvas.drawBitmap(bmp, 0f, 0f, null)
+            } else {
+                super.dispatchDraw(canvas)
+            }
             scheduleCatchUp()
             return
         }
