@@ -53,6 +53,28 @@ class ReadStyleDialog : BaseDialogFragment(R.layout.dialog_read_book_style),
             attributes = attr
             setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
         }
+        fitWindowToScreen()
+    }
+
+    /**
+     * 内容高于屏幕可用高度时，窗口只会被系统裁掉一截，而窗口本身不会滚——
+     * 底部的「翻页动画」「文字颜色和背景」就永远点不到（6 寸屏横屏只有约 570dp 高）。
+     * 给窗口一个上限，布局里的 ScrollView 就真的能滚了。
+     */
+    private fun fitWindowToScreen() {
+        val root = view ?: return
+        val window = dialog?.window ?: return
+        val maxHeight = resources.displayMetrics.heightPixels - statusBarHeight()
+        root.post {
+            if (root.height > maxHeight) {
+                window.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, maxHeight)
+            }
+        }
+    }
+
+    private fun statusBarHeight(): Int {
+        val id = resources.getIdentifier("status_bar_height", "dimen", "android")
+        return if (id > 0) resources.getDimensionPixelSize(id) else 0
     }
 
     override fun onFragmentCreated(view: View, savedInstanceState: Bundle?) {
