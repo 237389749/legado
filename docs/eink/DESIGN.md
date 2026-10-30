@@ -517,3 +517,90 @@ A 只能算「配色规范」。等确定要钉 DU 再决定走哪条——钉 D
 - `minSdk` 从 23 抬到 26（为绕 htmlunit 的 dex 约束），与上游有偏离
 - 设备事实只来自 Poke6 一台；换机型必须重新量波形
 - 真机阅读链路未验证，L1/L5 目前只有单元测试和代码推断支撑
+
+---
+
+## 11. 2026-10-31：三个真机缺陷（滚动失效 / 开关不可读 / 红绿失真）
+
+三个现象都由用户实测提出，全部在本机（Poke6，横屏 1072×1448）复现并验证修复。
+
+### 11.1 「设置面板无法下滑」的真因：帧宿主截断了子树的失效
+
+**现象**：阅读页 → 设置（`MoreConfigDialog`），手指往上滑，列表没有任何反应；
+但点一下原来位置的开关，触发的却是滚动到新位置后的那一行。
+
+**测量**：`adb shell dumpsys gfxinfo com.legado.app.debug` 在一次完整滑动前后
+`Total frames rendered` 只 +1；而 `uiautomator dump` 显示列表首项已经从
+「屏幕方向」变成了「平板/横屏双页」。**视图树滚了，屏幕一帧都没重画。**
+
+**根因**：`EinkFrameHost.dispatchDraw` 把子树画进 Bitmap 再贴回。硬件渲染下
+每个 View 是一条 display list，这一贴等于把子树从 display list 里**摘掉**，
+只剩一条 `drawBitmap`。子 View 自己 `invalidate()` 时，RenderThread 只重录
+那一小条（而它已经不在树里），宿主不会重绘 → 屏幕冻结在上一帧。
+滚动是唯一「只 invalidate、不 requestLayout」的交互，所以只有它暴露出来。
+
+**修法**（`EinkFrameHost`）：
+
+```kotlin
+override fun onDescendantInvalidated(child: View, target: View) {
+    super.onDescendantInvalidated(child, target)
+    invalidate()          // 子树失效必须把宿主一起拉进来重录
+}
+```
+
+顺带把节流分支从「画未量化的子树」改成「贴上一张量化过的位图」：
+中间帧不再出现灰阶，代价是画面最多延迟 120ms，这在 EPD 上无感。
+
+> 这条坑对任何「渲染到 Bitmap 再贴回」的方案都成立，不只是本工程。
+
+### 11.2 开关：把「颜色」换成「填充」
+
+**现象**：2 级量化下，Material 开关**开 = 一团黑**（彩色轨道 + 彩色滑块都变黑）、
+**关 = 完全看不见**（灰轨道 + 白滑块都变白）。偏好设置里的 `android.widget.Switch`、
+书源列表里的 `ThemeSwitch` 都一样。
+
+**修法**（`epd/EinkWidgets.kt`，不动控件、只换 drawable，随 `EinkUiPolicy` 遍历视图树生效）：
+
+| 状态 | 轨道 | 滑块 |
+|---|---|---|
+| 开 | 纯黑实心 44×24dp | 黑点，融进轨道 = 一根实心条 |
+| 关 | 白底 2dp 黑框（空心） | 左端黑点 |
+
+两个线索都不依赖色相：**实心 / 空心** + **黑点位置**。
+
+踩过的两个坑：
+
+1. **滑块不能做成状态选择器**。换 drawable 之后 `drawableStateChanged()` 不会重放，
+   「开」会把默认（黑）滑块贴到黑轨道上，又是一团黑。所以滑块用**单一**黑白双色/纯黑，
+   状态只由轨道承担。
+2. **`CircleImageView.setColorFilter(cf: ColorFilter)` 的 Kotlin 非空参数**会让
+   `clearColorFilter()`（内部调用 `setColorFilter(null)`）抛
+   `NullPointerException: Parameter specified as non-null is null`。
+   已改成 `ColorFilter?`——这是上游就有的 bug，任何 `clearColorFilter()` 调用都会中招。
+
+### 11.3 红绿状态点：换成实心 / 空心
+
+书源列表的「探索可用」标记原来用 `Color.GREEN` / `Color.RED`：
+绿色合成亮度≈150 → 2 级下变白（点直接消失），红色≈76 → 变黑。
+**结果「启用」看不见、「禁用」看得见，语义正好反了。**
+
+改成 `eink_dot_filled`（实心 = 启用）/ `eink_dot_hollow`（空心 = 未启用），
+两者都是纯黑，靠形状区分。
+
+### 11.4 其他
+
+- `dialog_read_book_style.xml` 外面套了一层 `ScrollView`，并在 `onStart` 里给窗口
+  加了高度上限：横屏可用高度约 570dp，面板内容约 610dp，原来超出部分被窗口直接裁掉。
+  （本机实测恰好装得下，但换小屏/竖屏就会裁，属于兜底。）
+- `SmoothCheckBox`（「共用布局」）未选底色是 30% 黑，2 级下变白 → 复选框消失；
+  墨水屏下改为「未选 = 黑盘 / 已选 = 白底黑勾」。
+- 对话框窗口现在也走 `EinkUiPolicy.attachWindow()`：之前只有 Activity 有统一入口，
+  偏好设置里的开关、列表 gate 全都没生效。
+
+### 11.5 仍未处理
+
+- 「换源」页的 👍/👎 用 `md_red_A200` / `md_red_100` 表示选中/未选：
+  浅红（亮度≈215）在 2 级下变白 → 未选图标不可见。可点但看不见，
+  需要换成「选中实心 / 未选空心」的图标对，属于图标资源工作。
+- 状态栏 / 导航栏（SystemUI 层）依旧不在应用层可解范围内。
+
