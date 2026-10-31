@@ -7,6 +7,7 @@ import android.util.Log
 import android.view.View
 import android.view.ViewGroup
 import androidx.recyclerview.widget.RecyclerView
+import io.legado.app.R
 import io.legado.app.help.config.AppConfig
 
 /**
@@ -114,5 +115,28 @@ object EinkUiPolicy {
             rv.overScrollMode = View.OVER_SCROLL_NEVER
         }
         EinkListGate.attach(rv)
+        attachChildStyler(rv)
+    }
+
+    /**
+     * 列表滚动时新绑定的行不在上一次全局布局的遍历结果里，
+     * 只靠 `OnGlobalLayout` 会漏掉它们（实测：偏好设置往下滑，新出现的开关
+     * 还是原样的「一团黑」）。行一挂上来就补一次黑白化，最稳。
+     */
+    private fun attachChildStyler(rv: RecyclerView) {
+        if (rv.getTag(R.id.eink_widget_styled) != null) return
+        rv.setTag(R.id.eink_widget_styled, true)
+        rv.addOnChildAttachStateChangeListener(
+            object : RecyclerView.OnChildAttachStateChangeListener {
+                override fun onChildViewAttachedToWindow(view: View) {
+                    try {
+                        EinkWidgets.apply(view)
+                    } catch (ignored: Throwable) {
+                    }
+                }
+
+                override fun onChildViewDetachedFromWindow(view: View) = Unit
+            }
+        )
     }
 }

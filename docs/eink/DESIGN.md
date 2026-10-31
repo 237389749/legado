@@ -568,7 +568,7 @@ override fun onDescendantInvalidated(child: View, target: View) {
 
 两个线索都不依赖色相：**实心 / 空心** + **黑点位置**。
 
-踩过的两个坑：
+踩过的三个坑：
 
 1. **滑块不能做成状态选择器**。换 drawable 之后 `drawableStateChanged()` 不会重放，
    「开」会把默认（黑）滑块贴到黑轨道上，又是一团黑。所以滑块用**单一**黑白双色/纯黑，
@@ -577,6 +577,9 @@ override fun onDescendantInvalidated(child: View, target: View) {
    `clearColorFilter()`（内部调用 `setColorFilter(null)`）抛
    `NullPointerException: Parameter specified as non-null is null`。
    已改成 `ColorFilter?`——这是上游就有的 bug，任何 `clearColorFilter()` 调用都会中招。
+3. **只靠 `OnGlobalLayout` 会漏掉滚动后新绑定的行**（实测：往下滑，新出现的开关
+   还是原样的「一团黑」）。改成给每个 `RecyclerView` 挂
+   `OnChildAttachStateChangeListener`，行一挂上来就补一次黑白化。
 
 ### 11.3 红绿状态点：换成实心 / 空心
 
