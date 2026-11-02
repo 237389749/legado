@@ -666,13 +666,14 @@ Material 亮色主题原色的地方。
 活动自己的 `LayoutInflater` inflate 的，`ListMenuItemView` 的 `parent.parent`
 就是弹窗的背景容器 `PopupBackgroundView`）
 
-拿不到 `PopupWindow` 实例，所以**不动窗口结构**，只做颜色收敛：
+拿不到 `PopupWindow` 实例，所以**不动窗口结构**，先做颜色收敛：
 面板换成白底黑框、`EinkUiPolicy.attachWindow()` 把文字拉回纯黑、
 `CompoundButton` / `CheckedTextView` 的勾选和单选 tint 成纯黑（去掉玫红 accent）。
 
-> 为什么 B 不做帧缓冲量化：窗口的 `PopupWindow` 实例不可达，能碰到的只有已经
-> 上屏的视图树，在 inflate 期间做「摘子树再包一层」风险大于收益。
-> 颜色收敛之后这块区域只剩抗锯齿灰边，与页面文字的观感差别已经不可见。
+只做颜色收敛不够：文字抗锯齿边缘会留下 200 多级灰（真机实测 `distinct=229`）。
+所以在上屏之后（`root.post`）再调 `EinkFrameHostInstaller.installInParent(root)`——
+把这个窗口的**唯一子视图**换成 `EinkFrameHost`，量化才真正落到 0/255。
+弹窗的窗口尺寸已经是 WRAP_CONTENT，换一层宿主不改变测量结果。
 
 ### 12.4 验收
 
@@ -711,12 +712,37 @@ powershell -File scripts/eink-levels.ps1 -Path s.png -Region x,y,w,h
 #    目视：单选点应为纯黑实心；面板为白底 + 1px 黑框、无灰阴影
 ```
 
+**2026-11-03 真机实测**（Poke6 1072×1448，CI 包 `3.26110300debug`，全部在墨水屏模式下）
+
+| 界面 | 取样区域 (x,y,w,h) | distinct |
+|---|---|---|
+| 排序下拉（系统 menu） | 705,185,367,740 | **2** |
+| 分组下拉（系统 menu） | 690,185,382,700 | **2** |
+| 溢出菜单（PopupAction） | 713,182,358,970 | **2** |
+| `alert{}`「网络导入」对话框 | 110,625,850,280 | **2** |
+| 对话框窗口的柔和投影（面板外） | 960,905,60,60 | 40（亮度 243–255） |
+| 状态栏（SystemUI） | 0,0,1072,120 | 多值 |
+
+对应日志（同一次操作）：`menu window attached host=true`（排序/分组）、
+`popup prepared menu=true host=true`（⋮）、`dialog attached host=true type=AlertDialog`（裸对话框）。
+
+截图：`shots/popup-sort.png`、`shots/popup-group.png`、`shots/popup-overflow.png`、
+`shots/alert-dialog.png`。
+
+> 剩下的两处灰不在应用层：对话框面板外那圈 243–255 的柔和投影由窗口管理器绘制
+> （与 §9.9 记录的 205 投影同源），状态栏是 SystemUI。**面板内部已经是纯 0/255。**
+
+**系统 menu 弹窗为什么还要多一步**：只做颜色收敛时，直方图仍有 200 多级灰
+（文字抗锯齿边缘，实测 distinct=229）。所以 `attachMenuWindow()`
+在上屏之后用 `EinkFrameHostInstaller.installInParent()` 把这个窗口的唯一子视图
+（`PopupBackgroundView`）包进帧宿主，才真正落到 0/255。
+
 ### 12.5 本次新增 / 改动的文件
 
 | 文件 | 作用 |
 |---|---|
 | `epd/EinkPopup.kt`（新） | 两条路径：`prepare(PopupWindow)` / `attachMenuWindow(View)` |
-| `epd/EinkFrameHost.kt` | `EinkFrameHostInstaller.install(popup: PopupWindow)` |
+| `epd/EinkFrameHost.kt` | `install(popup: PopupWindow)` / `installInParent(child: View)` |
 | `utils/PopupWindowExtensions.kt` | `applyMd3PopupStyle()` 末尾接 `EinkPopup.prepare(this)` |
 | `base/BaseActivity.kt` | 原有菜单弹窗 hack 里补 `EinkPopup.attachMenuWindow(menuWindow)` |
 | `test/.../epd/EinkPopupTest.kt`（新） | 钉住上面四个接点，并记下被替换的两个灰值 |
@@ -751,7 +777,7 @@ powershell -File scripts/eink-levels.ps1 -Path s.png -Region x,y,w,h
 | Activity（`android.R.id.content`） | `EinkUiPolicy.onActivityResumed` → `EinkFrameHostInstaller.install` | ✅ |
 | `BaseDialogFragment` 系（39 个业务对话框 + 设置项弹窗） | 各自 `onStart()` 里手挂 | ✅ |
 | 自绘 `PopupWindow`（`applyMd3PopupStyle` 的用户、划词菜单） | §12 的 `EinkPopup.prepare` | ✅（本次补上 `TextActionMenu`） |
-| 系统 menu 弹窗（排序/分组/溢出/`SelectActionBar`） | §12 的 `attachMenuWindow` | ✅ 颜色收敛 |
+| 系统 menu 弹窗（排序/分组/`SelectActionBar`） | §12 的 `attachMenuWindow`（颜色收敛 + 帧宿主） | ✅ distinct=2 |
 | **`alert {}` / `input {}` / `selector {}`**（`AndroidAlertBuilder`） | ❌ 之前只有 dim/动画/背景 | **本次补上** |
 | **`progressDialog()`**（`ProgressDialog`） | ❌ 之前什么都没有 | **本次补上** |
 | `AppCompatSpinner` 下拉（`ListPopupWindow`） | ❌ | 未做（默认 `gone`） |
