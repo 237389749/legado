@@ -63,6 +63,7 @@ jobs:
             2>&1 | tee "$RUNNER_TEMP/gradle-compile.log"
 
       - name: Unit tests
+        id: unit
         run: |
           set -o pipefail
           ./gradlew :app:testAppDebugUnitTest --build-cache --parallel --daemon --warning-mode all \
@@ -90,9 +91,10 @@ jobs:
               echo "| ${name:-$(basename "$f" .xml)} | ${tests:-?} | ${fails:-?} |"
             done
           } >> "$GITHUB_STEP_SUMMARY"
-          # 用例被静默跳过（类被删/被过滤）要显式失败，不能绿的莫名其妙
-          if [ "$found" -eq 0 ]; then
-            echo "没有找到墨水屏单测报告（epd / Eink / MenuPopupStyle 一个都没有；若编译或单测步骤先失败，看前面的日志）" | tee -a "$GITHUB_STEP_SUMMARY"
+          # 用例被静默跳过（类被删/被过滤）要显式失败，不能绿的莫名其妙；
+          # 但单测任务本身已经失败时不再叠一个红叉，错误信息看上一步的日志
+          if [ "$found" -eq 0 ] && [ "${{ steps.unit.outcome }}" = "success" ]; then
+            echo "没有找到墨水屏单测报告（epd / Eink / MenuPopupStyle 一个都没有）" | tee -a "$GITHUB_STEP_SUMMARY"
             exit 1
           fi
 

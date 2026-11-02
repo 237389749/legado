@@ -55,7 +55,7 @@ class EinkPopupTest {
         assertContains(source, "popup.width == ViewGroup.LayoutParams.WRAP_CONTENT")
         assertContains(source, "EinkFrameHostInstaller.install(popup)")
         // 全宽贴条的测量由窗口决定，不能换宿主
-        assertContains(source, "menu=$isMenuPanel host=$hosted")
+        assertContains(source, "menu=\$isMenuPanel host=\$hosted")
     }
 
     @Test
