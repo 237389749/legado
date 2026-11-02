@@ -68,6 +68,16 @@ class EinkPopupTest {
     }
 
     @Test
+    fun `system menu windows are quantized too`() {
+        // 颜色收敛之后文字边缘仍是 200 多级灰；要真的 2 级必须把弹窗内容包进帧宿主
+        assertContains(readProjectFile(EINK_POPUP), "EinkFrameHostInstaller.installInParent(root)")
+        assertContains(
+            readProjectFile("src/main/java/io/legado/app/epd/EinkFrameHost.kt"),
+            "fun installInParent(child: View)"
+        )
+    }
+
+    @Test
     fun `bare dialogs get the same window policy`() {
         assertContains(readProjectFile(EINK_POPUP), "fun attachDialog(dialog: Dialog)")
         // alert {} / input {} / selector {} 全走这个 builder，两条出口都要补

@@ -222,6 +222,18 @@ object EinkFrameHostInstaller {
         }
     }
 
+    /**
+     * 包住「某个窗口里唯一的那一个子视图」：把 `child` 换成 [EinkFrameHost]，再塞回原父容器。
+     *
+     * 系统 menu 弹窗（AppCompat `MenuPopupWindow` / 平台 `PopupMenu`）拿不到 `PopupWindow`
+     * 实例，只能从 inflate 钩子拿到它的 `PopupBackgroundView`；这一支就是给那种窗口用的。
+     */
+    fun installInParent(child: View): Boolean {
+        val parent = child.parent as? ViewGroup ?: return false
+        if (parent.childCount != 1) return false
+        return wrap(parent, child.context, "window:" + child.javaClass.simpleName)
+    }
+
     private fun wrap(content: ViewGroup, context: Context, label: String): Boolean {
         if (content.childCount != 1) return false
         val child = content.getChildAt(0)

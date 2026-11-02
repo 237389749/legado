@@ -132,6 +132,10 @@ object EinkPopup {
             root.setBackgroundKeepPadding(R.drawable.bg_eink_border_dialog)
             root.post {
                 runCatching {
+                    // 这个窗口的 PopupWindow 实例拿不到，但它的内容就是一个子视图，
+                    // 在它上屏之后包一层帧宿主即可——不包的话文字边缘仍是 200 多级灰
+                    val hosted = EinkFrameHostInstaller.installInParent(root)
+                    Log.i(TAG, "menu window attached host=$hosted")
                     EinkUiPolicy.attachWindow(root)
                     blackenChecks(root)
                 }
