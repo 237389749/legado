@@ -607,3 +607,192 @@ override fun onDescendantInvalidated(child: View, target: View) {
   需要换成「选中实心 / 未选空心」的图标对，属于图标资源工作。
 - 状态栏 / 导航栏（SystemUI 层）依旧不在应用层可解范围内。
 
+---
+
+## 12. 2026-11-02：书源页右上角三个下拉没有黑白化
+
+**现象**（用户实测提出）：书源管理页右上角三个下拉——「AŻ」排序、「分组」、
+「⋮」溢出——拉下来的面板还是灰的：浅灰面板、比正文浅一档的灰字，
+与页面其余部分（纯黑白）明显不是一套。
+
+### 12.1 三个下拉是三块不同归属的窗口
+
+| 下拉 | 实际实现 | 归属 |
+|---|---|---|
+| AŻ 排序 | `menu/book_source.xml` 里 `action_sort` 带 `<menu>` → AppCompat `MenuPopupHelper` → `MenuPopupWindow` | 系统（AppCompat）弹窗，**`PopupWindow` 实例不在应用手里** |
+| 分组 | 同上（`menu_group` 的 `<menu>`，运行时 `upGroupMenu()` 往里加组名） | 同上 |
+| ⋮ 溢出 | `ToolbarOverflowMenuExtensions.showMd3OverflowMenu()` → 自绘 `PopupAction` | 应用自己的 `PopupWindow` |
+
+### 12.2 根因：独立 window 不在量化和颜色收敛的作用域里
+
+`EinkFrameHost` 只包 `android.R.id.content`（Activity）和 `Dialog` 的 content；
+`EinkUiPolicy` 只遍历 Activity 的 decorView、以及 `BaseDialogFragment` /
+`BasePrefDialogFragment` / `ListPreferenceDialog` 三处 `attachWindow()` 的对话框窗口。
+**`PopupWindow` 是第三种顶层窗口，两条链都没覆盖它**，于是它是唯一还留着
+Material 亮色主题原色的地方。
+
+按屏幕真实的 2 级量化记一笔账（`EinkGray.luminance`）：
+
+| 元素 | 原值 | 亮度 | 2 级阈值(127) 下 |
+|---|---|---|---|
+| 弹窗面板 `@color/background_menu` | `#EEEEEE` | 238 | 判成白 → **面板边界消失，只剩一片浅灰底** |
+| 菜单文字 `@color/menu_color_default` | `#383838` | 56 | 判成黑，但**不经过量化，屏幕上就是 #383838 的灰字** |
+| 勾选/单选 `?attr/colorAccent` | `md_pink_800` | ≈82 | 判成黑，同样**原样显示成玫红** |
+| `applyMd3PopupStyle()` 的 elevation | `8dp` | — | 阴影画在窗口外，**量化宿主永远看不到它**，是一圈灰渐变 |
+| 弹出动画（`android:popupAnimationStyle`） | 淡入/缩放 | — | 一串中间帧 |
+
+最后两条是「窗口之外」的，改颜色改不掉，必须在 `PopupWindow` 层面关掉。
+
+### 12.3 修法：`epd/EinkPopup.kt`，两条路径对应两种窗口归属
+
+**A. 自绘 PopupWindow → `EinkPopup.prepare(popup)`**
+（`applyMd3PopupStyle()` 末尾统一调用，所以 `PopupAction` / `KeyboardToolPop` /
+`SliderPopup` 一次全覆盖，将来新增的弹窗只要用这个扩展就自动生效）
+
+- `elevation = 0f`：关掉那圈灰阴影；
+- `animationStyle = 0`：关掉弹出动画（中间帧为零）；
+- 窗口背景 `WHITE`；
+- `wrap_content` 的小面板换成 `bg_eink_border_dialog`（白底 + 1dp 黑框，
+  与对话框同一套 drawable）——阴影去掉后，面板边界由描边承担；
+- `EinkFrameHostInstaller.install(popup)`：**把 popup 的 contentView 包进帧缓冲量化**，
+  于是「⋮」这块区域也是真正的 2 级（直方图只剩 0/255）；
+- `EinkUiPolicy.attachWindow()`：文字收敛、开关黑白化、列表 gate 在这个窗口里再挂一次。
+
+只对 `popup.width == WRAP_CONTENT` 的面板做「换背景 + 包宿主」：全宽贴条
+（键盘工具条、进度滑杆）的尺寸由窗口决定，换一层宿主会改变测量行为，只做颜色收敛。
+
+**B. 系统 menu 弹窗 → `EinkPopup.attachMenuWindow(root)`**
+（入口是 `BaseActivity.onCreateView` 里原有的那段 hack：AppCompat 的菜单行布局是
+活动自己的 `LayoutInflater` inflate 的，`ListMenuItemView` 的 `parent.parent`
+就是弹窗的背景容器 `PopupBackgroundView`）
+
+拿不到 `PopupWindow` 实例，所以**不动窗口结构**，只做颜色收敛：
+面板换成白底黑框、`EinkUiPolicy.attachWindow()` 把文字拉回纯黑、
+`CompoundButton` / `CheckedTextView` 的勾选和单选 tint 成纯黑（去掉玫红 accent）。
+
+> 为什么 B 不做帧缓冲量化：窗口的 `PopupWindow` 实例不可达，能碰到的只有已经
+> 上屏的视图树，在 inflate 期间做「摘子树再包一层」风险大于收益。
+> 颜色收敛之后这块区域只剩抗锯齿灰边，与页面文字的观感差别已经不可见。
+
+### 12.4 验收
+
+**第一步：远程跑编译 + 单测 + 打包**（本机没有 JDK / SDK，见 §12.6）
+
+`.github/workflows/eink.yml`，push 到 `eink` 分支自动触发，也可 `workflow_dispatch` 手动跑。
+两个 job 相互独立，单测挂了也照样出包：
+
+| job | 做什么 | 失败时看什么 |
+|---|---|---|
+| `Compile + unit tests` | `:app:compileAppDebugKotlin` → `:app:testAppDebugUnitTest` | 日志里的 Kotlin 报错；job 页的「墨水屏单测」汇总表 |
+| `Build app-debug APK` | `:app:assembleAppDebug -ParmOnly=true` → artifact `legado-eink-debug` | `eink-gradle-apk-log` artifact |
+
+两个只有 CI 才知道的坑，workflow 里已经处理：
+
+- `versionCode` 来自 `git rev-list <base>..HEAD --count`，所以 checkout 必须 `fetch-depth: 0`，
+  否则退化成 30000，装到设备上会变成「降级安装」失败；
+- APK 用仓库自带的 `.github/workflows/legado.jks` 签，不用 runner 每次新生成的 debug key，
+  这样连续几次 CI 包能互相覆盖安装。**首次**装 CI 包要先
+  `adb uninstall com.legado.app.debug`（本地 debug 包是另一把钥匙签的）。
+
+**第二步：装机后取证据**
+
+```bash
+# 1. 入口是否生效（三个下拉各开一次，每个窗口应有一条）
+adb logcat -s EinkRefresh | grep -E "popup prepared|menu window"
+#    期望：popup prepared menu=true host=true  ← ⋮（PopupAction）
+#          popup prepared menu=false host=false ← 键盘工具条/滑杆这类全宽贴条
+
+# 2. 「⋮」面板是否真的 2 级（窗口内区域按屏幕坐标取）
+adb exec-out screencap -p > s.png
+powershell -File scripts/eink-levels.ps1 -Path s.png -Region x,y,w,h
+#    期望：distinct=2（0 / 255）
+
+# 3. 排序/分组的勾选是否还是玫红
+#    目视：单选点应为纯黑实心；面板为白底 + 1px 黑框、无灰阴影
+```
+
+### 12.5 本次新增 / 改动的文件
+
+| 文件 | 作用 |
+|---|---|
+| `epd/EinkPopup.kt`（新） | 两条路径：`prepare(PopupWindow)` / `attachMenuWindow(View)` |
+| `epd/EinkFrameHost.kt` | `EinkFrameHostInstaller.install(popup: PopupWindow)` |
+| `utils/PopupWindowExtensions.kt` | `applyMd3PopupStyle()` 末尾接 `EinkPopup.prepare(this)` |
+| `base/BaseActivity.kt` | 原有菜单弹窗 hack 里补 `EinkPopup.attachMenuWindow(menuWindow)` |
+| `test/.../epd/EinkPopupTest.kt`（新） | 钉住上面四个接点，并记下被替换的两个灰值 |
+| `.github/workflows/eink.yml`（新） | 远程编译 + 单测 + 出可安装的 app-debug APK |
+
+### 12.6 仍未覆盖
+
+- `AppCompatSpinner` 的下拉（`ListPopupWindow`，书源页的「校验状态」筛选）：
+  同样是独立窗口，但面板来自 `?attr/popupBackground`（`#EEEEEE`），
+  且 item 是 `simple_spinner_dropdown_item`，`ListMenuItemView` 钩子抓不到。
+  该控件默认 `visibility=gone`，需要时再单独处理。
+- `AutoCompleteTextView` 的下拉（`setDropDownBackgroundDrawable(popupBackground)`）：
+  面板是白的，但 item 布局不走菜单钩子，文字靠 `EinkPalette` 覆盖不到。
+- 系统 PopupMenu 行内的 `?attr/selectableItemBackground` ripple：按下时是一帧
+  半透明灰，弹出菜单随后即消失，暂按低频处理。
+- **本机没有 JDK / Android SDK / adb**：编译/单测/打包交给
+  `.github/workflows/eink.yml`（push 到 `eink` 分支或手动 `workflow_dispatch`），
+  装机与直方图仍需在 Poke6 上做（§12.4 第 2、3 步）。
+
+---
+
+## 13. 2026-11-02：全项目「文字有没有真的二值化」审查
+
+顺着 §12 的修法把整棵窗口树过了一遍。判据不是「看着黑不黑」，而是
+**这段文字所在的那块像素有没有进过 `EinkFrameHost`（量化）和 `EinkPalette`（拉纯黑）**。
+两者都没经过的，就是「灰字」；进过量化但原亮度 > 127.5 的，会直接变白消失。
+
+### 13.1 覆盖现状（按窗口类型）
+
+| 窗口 | 谁负责 | 状态 |
+|---|---|---|
+| Activity（`android.R.id.content`） | `EinkUiPolicy.onActivityResumed` → `EinkFrameHostInstaller.install` | ✅ |
+| `BaseDialogFragment` 系（39 个业务对话框 + 设置项弹窗） | 各自 `onStart()` 里手挂 | ✅ |
+| 自绘 `PopupWindow`（`applyMd3PopupStyle` 的用户、划词菜单） | §12 的 `EinkPopup.prepare` | ✅（本次补上 `TextActionMenu`） |
+| 系统 menu 弹窗（排序/分组/溢出/`SelectActionBar`） | §12 的 `attachMenuWindow` | ✅ 颜色收敛 |
+| **`alert {}` / `input {}` / `selector {}`**（`AndroidAlertBuilder`） | ❌ 之前只有 dim/动画/背景 | **本次补上** |
+| **`progressDialog()`**（`ProgressDialog`） | ❌ 之前什么都没有 | **本次补上** |
+| `AppCompatSpinner` 下拉（`ListPopupWindow`） | ❌ | 未做（默认 `gone`） |
+| `SearchView` / `AutoCompleteTextView` 联想下拉 | ❌ | 未做（面板白、文字深，观感损失小） |
+| `Toast` / 状态栏 / 导航栏 / 系统文本选择浮条 | ❌ 窗口管理器或 SystemUI 绘制 | 应用层无解 |
+
+### 13.2 本次补的三处（都在裸 Dialog 上）
+
+关键区别：`BaseDialogFragment` 的对话框在 `onStart()` 里自己挂了帧宿主；而
+`alert {}` 系列是 `AndroidAlertBuilder.builder.show()` 直接上屏的裸 `AlertDialog`，
+`onStart()` 那套从来没有机会执行。所以：
+
+| 文件 | 改动 |
+|---|---|
+| `lib/dialogs/AndroidAlertBuilder.kt` | `show()` 里 `EinkPopup.attachDialog(dialog)`；`build()` 里挂 `setOnShowListener`（此时 content 还是空的） |
+| `lib/dialogs/AndroidDialogs.kt` | `progressDialog()` 在 `show()` 之后 `attachDialog`（不补的话转圈是 accent 玫红、文字是灰的） |
+| `ui/book/read/TextActionMenu.kt` | `EinkPopup.prepare(this)`：阅读页划词菜单是 `WRAP_CONTENT` 的 PopupWindow |
+
+`EinkPopup.attachDialog()` 就是 `BaseDialogFragment` 那两句的公共版本：
+`EinkFrameHostInstaller.install(dialog)` + `EinkUiPolicy.attachWindow(decorView)`。
+窗口底色/边框/dim/动画在 `AndroidAlertBuilder` 里本来就有，不动。
+
+### 13.3 顺带核对过、确认没问题的
+
+- **代码编辑器语法高亮**（`CodeViewExtensions` 四色 `md_orange_900` / `md_blue_800` /
+  `md_blue_grey_500` / `md_light_blue_600`）：亮度分别是 117 / 87 / 118 / 117，
+  全部 < 127.5，进量化宿主后一律变纯黑，不会消失 —— 所以**没有**去动它。
+- **span 着色的文字**（`AboutActivity`、`ReadRecordActivity`、`ReviewDetailDialog`、
+  搜索高亮）：颜色取自 `accentColor`（墨水屏下是纯黑）或深灰，量化后仍是黑；
+  `EinkPalette` 管不到 span，但量化能兜住。
+- 阅读页 Canvas 绘制的正文/批注/页眉（`TextLine` / `TextColumn` / `ReviewColumn`）
+  用的是 `ReadBookConfig` 里 `isEInkMode` 分支的颜色，本来就是黑的。
+- `SharedReceiverActivity` 只在 `onCreate` 里转发完就 `finish()`，没有界面。
+
+### 13.4 明确留着的
+
+- `progressDialog()` 的**转圈动画**：窗口现在会被量化（玫红→黑），但原地转圈仍是
+  「同一小块区域反复刷新」，与 §10「原地 spinner 暂缓」一致；要根治得改成静态阶段文字。
+- `AppCompatSpinner` / 联想下拉 / `Toast` / 系统窗口：同 §13.1 表格最后三行。
+- `ContentEditDialog` 的搜索高亮用 `BackgroundColorSpan(primaryColor 0.35)`，
+  墨水屏下 primary 是白 → 高亮等于没有。属于「高亮不可见」而不是「文字不黑」，
+  要改得换成黑底白字反显，等用户真的去用那个功能再说。
+
+

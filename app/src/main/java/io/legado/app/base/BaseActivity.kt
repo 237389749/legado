@@ -25,6 +25,7 @@ import io.legado.app.R
 import io.legado.app.constant.AppConst
 import io.legado.app.constant.AppLog
 import io.legado.app.constant.Theme
+import io.legado.app.epd.EinkPopup
 import io.legado.app.help.config.AppConfig
 import io.legado.app.help.config.ThemeConfig
 import io.legado.app.lib.theme.ThemeStore
@@ -80,7 +81,11 @@ abstract class BaseActivity<VB : ViewBinding>(
         attrs: AttributeSet
     ): View? {
         if (AppConst.menuViewNames.contains(name) && parent?.parent is FrameLayout) {
-            (parent.parent as View).setBackgroundColor(backgroundColor)
+            // 系统 menu 弹窗是独立 window，PopupWindow 实例不在应用手里；
+            // 这里拿到的 parent.parent 就是弹窗的背景容器，是唯一能碰到它的地方
+            val menuWindow = parent.parent as View
+            menuWindow.setBackgroundColor(backgroundColor)
+            EinkPopup.attachMenuWindow(menuWindow)
         }
         return super.onCreateView(parent, name, context, attrs)?.also { view ->
             if (view is Toolbar) view.installMd3OverflowMenu()

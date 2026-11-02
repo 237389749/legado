@@ -11,6 +11,7 @@ import android.util.Log
 import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
+import android.widget.PopupWindow
 
 /**
  * 帧缓冲量化宿主。
@@ -189,6 +190,36 @@ object EinkFrameHostInstaller {
     fun install(dialog: android.app.Dialog): Boolean {
         val content = dialog.findViewById<ViewGroup>(android.R.id.content) ?: return false
         return wrap(content, dialog.context, "dialog")
+    }
+
+    /**
+     * 自绘的 `PopupWindow`（下拉菜单、溢出菜单、键盘工具条……）同样是独立 window，
+     * 不包这一层就是「页面上纯黑白、一拉开菜单全是灰」。
+     *
+     * 只换 `contentView`，不动窗口本身：popup 的测量由 `PopupWindow` 对 contentView
+     * 发起，宿主是普通 FrameLayout，测量规格原样透传。
+     */
+    fun install(popup: PopupWindow): Boolean {
+        val content = popup.contentView ?: return false
+        if (content is EinkFrameHost) return true
+        // 已经上屏的窗口不做结构改动，避免"弹到一半被换掉"的中间态
+        if (content.parent != null) return false
+        if (hasSurfaceView(content)) return false
+        val lp = content.layoutParams ?: ViewGroup.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT
+        )
+        return try {
+            val host = EinkFrameHost(content.context)
+            host.addView(content, ViewGroup.LayoutParams(lp.width, lp.height))
+            popup.contentView = host
+            host.invalidate()
+            Log.i(TAG, "frame host installed: popup")
+            true
+        } catch (t: Throwable) {
+            Log.w(TAG, "frame host install failed (popup)", t)
+            false
+        }
     }
 
     private fun wrap(content: ViewGroup, context: Context, label: String): Boolean {

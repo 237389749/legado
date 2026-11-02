@@ -128,6 +128,10 @@ Onyx 的刷新接口走反射（无 SDK 依赖），细节见
    判断标准：翻一页只出 1 条波形；跨章出现一次 `clearGhosting -> true`。
 2. **真实搜索 burst**：需要有书源。看一次搜索的 `gate hold/release` 次数是否 ≈ 1。
 3. **封面在 2 级下的观感**：用户口径是「二值化可以接受」，但没留下截图。
+4. **弹出菜单的黑白化**（2026-11-02 新增）：书源页右上角三个下拉（排序 / 分组 / 溢出）。
+   编译 + 单测交给 `.github/workflows/eink.yml`（push `eink` 或手动 dispatch），
+   artifact `legado-eink-debug` 可直接装；装机后看 `popup prepared menu=true host=true`
+   日志，并对「⋮」面板区域取直方图，应当只剩 0/255。细节见 `DESIGN.md` §12。
 
 **未做（想做的话）**
 

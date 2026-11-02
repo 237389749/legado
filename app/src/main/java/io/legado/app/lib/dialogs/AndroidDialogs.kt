@@ -7,6 +7,7 @@ import android.content.Context
 import android.content.DialogInterface
 import androidx.appcompat.app.AlertDialog
 import androidx.fragment.app.Fragment
+import io.legado.app.epd.EinkPopup
 
 fun Context.alert(
     title: CharSequence? = null,
@@ -123,6 +124,9 @@ private fun Context.progressDialog(
     if (title != null) setTitle(title)
     if (init != null) init()
     show()
+}.also {
+    // 裸 ProgressDialog 也是独立 window：不补帧宿主的话转圈是粉的、文字是灰的
+    EinkPopup.attachDialog(it)
 }
 
 typealias AlertBuilderFactory<D> = (Context) -> AlertBuilder<D>

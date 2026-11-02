@@ -24,6 +24,7 @@ import io.legado.app.base.adapter.RecyclerAdapter
 import io.legado.app.constant.AppLog
 import io.legado.app.databinding.ItemTextBinding
 import io.legado.app.databinding.PopupActionMenuBinding
+import io.legado.app.epd.EinkPopup
 import io.legado.app.help.config.AppConfig
 import io.legado.app.utils.gone
 import io.legado.app.utils.isAbsUrl
@@ -48,6 +49,8 @@ class TextActionMenu(private val context: Context, private val callBack: CallBac
     init {
         @SuppressLint("InflateParams")
         contentView = binding.root
+        // 划词菜单也是独立 PopupWindow，不prepare就是灰面板 + 灰字
+        EinkPopup.prepare(this)
 
         isTouchable = true
         isOutsideTouchable = false

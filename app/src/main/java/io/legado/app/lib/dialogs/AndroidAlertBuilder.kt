@@ -7,6 +7,7 @@ import android.view.KeyEvent
 import android.view.View
 import androidx.appcompat.app.AlertDialog
 import io.legado.app.R
+import io.legado.app.epd.EinkPopup
 import io.legado.app.help.config.AppConfig
 import io.legado.app.utils.applyTint
 
@@ -151,6 +152,8 @@ internal class AndroidAlertBuilder(override val ctx: Context) : AlertBuilder<Ale
                 attributes = attr
                 setBackgroundDrawableResource(R.drawable.bg_eink_border_dialog)
             }
+            // build() 之后调用方才 show()，上屏那一刻再挂帧宿主（content 是空的时候包不了）
+            dialog.setOnShowListener { EinkPopup.attachDialog(dialog) }
         }
         return dialog
     }
@@ -165,6 +168,8 @@ internal class AndroidAlertBuilder(override val ctx: Context) : AlertBuilder<Ale
                 attributes = attr
                 setBackgroundDrawableResource(R.drawable.bg_eink_border_dialog)
             }
+            // 裸 AlertDialog 不走 BaseDialogFragment，不补这一句它永远是灰阶窗口
+            EinkPopup.attachDialog(dialog)
         }
         return dialog
     }

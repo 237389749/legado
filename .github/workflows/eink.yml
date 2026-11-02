@@ -1,0 +1,177 @@
+name: E-Ink Check
+
+# 墨水屏特化分支（eink）的远程验证。
+#
+# 本机没有 JDK / Android SDK / adb，编译、单测、打包都放到 runner 上跑；
+# 产出 app-debug APK 直接下载装到 Poke6 上核对画面。
+#
+# 判据仍然是「一次交互提交几次、整屏还剩几个灰阶」——见 docs/eink/DESIGN.md。
+# 这个 workflow 只负责「代码能编译 + 单测不回归 + 有一个能装的包」。
+
+on:
+  push:
+    branches:
+      - eink
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # 项目有 app flavor，任务名必须带 flavor：compileAppDebugKotlin / testAppDebugUnitTest
+  SDK_PLATFORM: android-36
+
+jobs:
+
+  unit-tests:
+    name: Compile + unit tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          # versionCode 是 `git rev-list <base>..HEAD --count`，浅克隆会退化成 30000
+          fetch-depth: 0
+
+      - name: Setup JDK 21
+        uses: actions/setup-java@v6
+        with:
+          distribution: 'temurin'
+          java-version: 21
+
+      - name: Ensure Android SDK platform
+        run: |
+          sdk_root="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
+          echo "sdk root: $sdk_root"
+          if [ ! -d "$sdk_root/platforms/$SDK_PLATFORM" ]; then
+            (yes | "$sdk_root/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null) || true
+            "$sdk_root/cmdline-tools/latest/bin/sdkmanager" "platforms;$SDK_PLATFORM" \
+              || sudo "$sdk_root/cmdline-tools/latest/bin/sdkmanager" "platforms;$SDK_PLATFORM"
+          fi
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v6.4.0
+
+      - name: Compile debug sources
+        run: |
+          set -o pipefail
+          chmod +x gradlew
+          ./gradlew :app:compileAppDebugKotlin --build-cache --parallel --daemon --warning-mode all \
+            2>&1 | tee "$RUNNER_TEMP/gradle-compile.log"
+
+      - name: Unit tests
+        run: |
+          set -o pipefail
+          ./gradlew :app:testAppDebugUnitTest --build-cache --parallel --daemon --warning-mode all \
+            2>&1 | tee "$RUNNER_TEMP/gradle-unit-test.log"
+
+      - name: Summarize e-ink unit tests
+        if: always()
+        run: |
+          shopt -s nullglob
+          found=0
+          {
+            echo "### 墨水屏单测"
+            echo
+            echo "| 用例类 | 数量 | 失败 |"
+            echo "|---|---|---|"
+            for f in app/build/test-results/testAppDebugUnitTest/*.xml; do
+              case "$f" in
+                *epd*|*Eink*|*MenuPopupStyle*) ;;
+                *) continue ;;
+              esac
+              found=1
+              name=$(sed -n 's/.*<testsuite name="\([^"]*\)".*/\1/p' "$f" | head -1)
+              tests=$(sed -n 's/.*<testsuite[^>]* tests="\([0-9]*\)".*/\1/p' "$f" | head -1)
+              fails=$(sed -n 's/.*<testsuite[^>]* failures="\([0-9]*\)".*/\1/p' "$f" | head -1)
+              echo "| ${name:-$(basename "$f" .xml)} | ${tests:-?} | ${fails:-?} |"
+            done
+          } >> "$GITHUB_STEP_SUMMARY"
+          # 用例被静默跳过（类被删/被过滤）要显式失败，不能绿的莫名其妙
+          if [ "$found" -eq 0 ]; then
+            echo "没有找到墨水屏单测报告（epd / Eink / MenuPopupStyle 一个都没有；若编译或单测步骤先失败，看前面的日志）" | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+
+      - name: Upload unit test report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: eink-unit-tests
+          if-no-files-found: warn
+          path: |
+            app/build/test-results/testAppDebugUnitTest/*.xml
+            app/build/reports/tests/testAppDebugUnitTest/**
+
+  debug-apk:
+    name: Build app-debug APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Setup JDK 21
+        uses: actions/setup-java@v6
+        with:
+          distribution: 'temurin'
+          java-version: 21
+
+      - name: Ensure Android SDK platform
+        run: |
+          sdk_root="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
+          echo "sdk root: $sdk_root"
+          if [ ! -d "$sdk_root/platforms/$SDK_PLATFORM" ]; then
+            (yes | "$sdk_root/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null) || true
+            "$sdk_root/cmdline-tools/latest/bin/sdkmanager" "platforms;$SDK_PLATFORM" \
+              || sudo "$sdk_root/cmdline-tools/latest/bin/sdkmanager" "platforms;$SDK_PLATFORM"
+          fi
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v6.4.0
+
+      # 用仓库自带的测试签名，而不是 runner 每次新生成的 debug keystore：
+      # 这样连续几次 CI 出的包可以互相覆盖安装（同一签名）
+      # 注意：如果设备上现存的 com.legado.app.debug 是本地 debug keystore 签的，
+      # 第一次装 CI 包需要 `adb uninstall com.legado.app.debug`。
+      - name: Sign with the shared test keystore
+        run: |
+          cp "$GITHUB_WORKSPACE/.github/workflows/legado.jks" "$GITHUB_WORKSPACE/app/legado.jks"
+          {
+            echo "RELEASE_STORE_FILE=./legado.jks"
+            echo "RELEASE_KEY_ALIAS=legado"
+            echo "RELEASE_STORE_PASSWORD=gedoor_legado"
+            echo "RELEASE_KEY_PASSWORD=gedoor_legado"
+          } >> "$GITHUB_WORKSPACE/gradle.properties"
+
+      - name: Assemble app-debug
+        run: |
+          set -o pipefail
+          chmod +x gradlew
+          # armOnly 只保留 arm64-v8a / armeabi-v7a，Poke6 够用且包更小
+          ./gradlew :app:assembleAppDebug -ParmOnly=true --build-cache --parallel --daemon --warning-mode all \
+            2>&1 | tee "$RUNNER_TEMP/gradle-apk.log"
+
+      - name: Show APK
+        run: ls -lh app/build/outputs/apk/app/debug/
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v7
+        with:
+          name: legado-eink-debug
+          if-no-files-found: error
+          retention-days: 14
+          path: app/build/outputs/apk/app/debug/*.apk
+
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: eink-gradle-apk-log
+          if-no-files-found: ignore
+          path: ${{ runner.temp }}/gradle-apk.log
